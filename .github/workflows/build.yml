@@ -7,44 +7,74 @@ on:
 
 jobs:
   build:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-22.04  # 推荐使用 22.04，兼容性更好
 
     env:
       DEVICE: equuleus
-      TWRP_VERSION: 13.0
-      JDK_VERSION: 11
+      FOX_VERSION: R13.0
+      MANIFEST_BRANCH: fox_13.0
 
     steps:
-    - name: Checkout Repo
-      uses: actions/checkout@v3
-
     - name: Install Dependencies
       run: |
         sudo apt update
-        sudo apt install -y git build-essential bc openjdk-11-jdk unzip curl python3 wget repo
+        sudo apt install -y \
+          git-core gnupg flex bison build-essential zip curl zlib1g-dev \
+          gcc-multilib g++-multilib libc6-dev-i386 libncurses5-dev \
+          x11proto-core-dev libx11-dev lib32z1-dev libgl1-mesa-dev \
+          libxml2-utils xsltproc unzip fontconfig python3 python3-pip \
+          openjdk-11-jdk repo bc cpio liblz4-tool
 
-    - name: Clone OrangeFox Source
+    - name: Checkout OrangeFox Manifests
       run: |
-        git clone https://gitlab.com/OrangeFox/bootable_recovery.git -b ${{ env.TWRP_VERSION }} orangefox
+        git clone https://gitlab.com/OrangeFox/mirror/manifests.git -b ${{ env.MANIFEST_BRANCH }} orangefox
         cd orangefox
-        mkdir -p device/xiaomi/${{ env.DEVICE }}
-        git clone https://gitlab.com/OrangeFox/device_xiaomi_equuleus.git device/xiaomi/${{ env.DEVICE }}
-        git clone https://github.com/LineageOS/android_kernel_xiaomi_sdm845.git kernel/xiaomi/${{ env.DEVICE }}
+        repo init -u https://gitlab.com/OrangeFox/mirror/manifests.git -b ${{ env.MANIFEST_BRANCH }}
+        repo sync -j$(nproc) --force-sync --no-clone-bundle --no-tags
 
-    - name: Setup Build Environment
+    - name: Clone Device Tree
+      run: |
+        cd orangefox
+        # 移除可能存在的默认设备树
+        rm -rf device/xiaomi/${{ env.DEVICE }}
+        # 克隆 OrangeFox 的 equuleus 设备树
+        git clone https://gitlab.com/OrangeFox/device_xiaomi_equuleus.git device/xiaomi/${{ env.DEVICE }}
+
+    - name: Clone Kernel Source
+      run: |
+        cd orangefox
+        git clone https://github.com/LineageOS/android_kernel_xiaomi_sdm845.git kernel/xiaomi/sdm845
+
+    - name: Clone Vendor (如果需要)
+      run: |
+        cd orangefox
+        # 可能需要厂商闭源库，从 LineageOS 获取
+        git clone https://gitlab.com/OrangeFox/vendor_xiaomi_equuleus.git vendor/xiaomi/${{ env.DEVICE }} || echo "Vendor not found, using common sdm845"
+
+    - name: Setup Environment
       run: |
         cd orangefox
         source build/envsetup.sh
-        lunch omni_${{ env.DEVICE }}-eng
+        lunch twrp_${{ env.DEVICE }}-eng
 
-    - name: Build OrangeFox Recovery
+    - name: Build Recovery
       run: |
         cd orangefox
         mka recoveryimage -j$(nproc)
 
-    - name: Upload Recovery Image
+    - name: Prepare Output
+      run: |
+        cd orangefox/out/target/product/${{ env.DEVICE }}
+        # 重命名输出文件
+        if [ -f recovery.img ]; then
+          mv recovery.img OrangeFox-${{ env.DEVICE }}.img
+        elif [ -f *.zip ]; then
+          mv *.zip OrangeFox-${{ env.DEVICE }}.zip
+        fi
+
+    - name: Upload Artifact
       uses: actions/upload-artifact@v4
       with:
-        name: OrangeFox-${{ env.DEVICE }}-recovery.img
-        path: orangefox/out/target/product/${{ env.DEVICE }}/recovery.img
+        name: OrangeFox-${{ env.DEVICE }}
+        path: orangefox/out/target/product/${{ env.DEVICE }}/OrangeFox-${{ env.DEVICE }}.*
 
