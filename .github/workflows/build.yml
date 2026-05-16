@@ -1,0 +1,49 @@
+name: equuleus super ofrp
+
+on:
+  push:
+    branches: [ main ]
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    env:
+      DEVICE: equuleus
+      TWRP_VERSION: 13.0
+      JDK_VERSION: 11
+
+    steps:
+    - name: Checkout Repo
+      uses: actions/checkout@v3
+
+    - name: Install Dependencies
+      run: |
+        sudo apt update
+        sudo apt install -y git-core build-essential bc openjdk-${{ env.JDK_VERSION }} unzip curl python3 wget repo
+
+    - name: Clone OrangeFox Source
+      run: |
+        git clone https://gitlab.com/OrangeFox/bootable_recovery.git -b ${{ env.TWRP_VERSION }} orangefox
+        cd orangefox
+        mkdir -p device/xiaomi/${{ env.DEVICE }}
+        git clone https://gitlab.com/OrangeFox/device_xiaomi_equuleus.git device/xiaomi/${{ env.DEVICE }}
+        git clone https://github.com/LineageOS/android_kernel_xiaomi_sdm845.git kernel/xiaomi/${{ env.DEVICE }}
+
+    - name: Setup Build Environment
+      run: |
+        cd orangefox
+        source build/envsetup.sh
+        lunch omni_${{ env.DEVICE }}-eng
+
+    - name: Build OrangeFox Recovery
+      run: |
+        cd orangefox
+        mka recoveryimage -j$(nproc)
+
+    - name: Upload Recovery Image
+      uses: actions/upload-artifact@v3
+      with:
+        name: OrangeFox-${{ env.DEVICE }}-recovery.img
+        path: orangefox/out/target/product/${{ env.DEVICE }}/recovery.img
