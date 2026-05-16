@@ -7,74 +7,127 @@ on:
 
 jobs:
   build:
-    runs-on: ubuntu-22.04  # 推荐使用 22.04，兼容性更好
+    runs-on: ubuntu-22.04
 
     env:
       DEVICE: equuleus
       FOX_VERSION: R13.0
-      MANIFEST_BRANCH: fox_13.0
 
     steps:
     - name: Install Dependencies
       run: |
         sudo apt update
         sudo apt install -y \
-          git-core gnupg flex bison build-essential zip curl zlib1g-dev \
-          gcc-multilib g++-multilib libc6-dev-i386 libncurses5-dev \
-          x11proto-core-dev libx11-dev lib32z1-dev libgl1-mesa-dev \
-          libxml2-utils xsltproc unzip fontconfig python3 python3-pip \
-          openjdk-11-jdk repo bc cpio liblz4-tool
+          git-core gnupg flex bison 
+build-essential zip curl zlib1g-dev \
+          gcc-multilib g++-multilib 
+libc6-dev-i386 libncurses5-dev \
+          x11proto-core-dev libx11-dev 
+lib32z1-dev libgl1-mesa-dev \
+          libxml2-utils xsltproc unzip 
+fontconfig python3 python-is-python3 \
+          openjdk-11-jdk repo bc cpio 
+liblz4-tool
 
-    - name: Checkout OrangeFox Manifests
+    - name: Initialize Repo with TWRP Manifest
       run: |
-        git clone https://gitlab.com/OrangeFox/mirror/manifests.git -b ${{ env.MANIFEST_BRANCH }} orangefox
+        mkdir orangefox
         cd orangefox
-        repo init -u https://gitlab.com/OrangeFox/mirror/manifests.git -b ${{ env.MANIFEST_BRANCH }}
-        repo sync -j$(nproc) --force-sync --no-clone-bundle --no-tags
+        # 初始化 TWRP 的 manifest（OrangeFox 
+基于 TWRP）
+        repo init -u 
+https://github.com/minimal-manifest-twrp/platform_manifest_twrp_omni.git 
+-b twrp-13.0
+        repo sync -j$(nproc) --force-sync 
+--no-clone-bundle --no-tags
+
+    - name: Clone OrangeFox Core
+      run: |
+        cd orangefox
+        # 移除 TWRP 的 recovery 源码，替换为 
+OrangeFox
+        rm -rf bootable/recovery
+        git clone 
+https://gitlab.com/OrangeFox/bootable_recovery.git 
+bootable/recovery
+        
+        # 克隆 OrangeFox 的额外组件
+        git clone 
+https://gitlab.com/OrangeFox/bootable_recovery_fox.git 
+bootable/recovery/fox 2>/dev/null || true
 
     - name: Clone Device Tree
       run: |
         cd orangefox
-        # 移除可能存在的默认设备树
-        rm -rf device/xiaomi/${{ env.DEVICE }}
-        # 克隆 OrangeFox 的 equuleus 设备树
-        git clone https://gitlab.com/OrangeFox/device_xiaomi_equuleus.git device/xiaomi/${{ env.DEVICE }}
+        # 创建设备目录
+        mkdir -p device/xiaomi/${{ env.DEVICE }}
+        git clone 
+https://gitlab.com/OrangeFox/device_xiaomi_equuleus.git 
+device/xiaomi/${{ env.DEVICE }} || \
+        git clone 
+https://github.com/TeamWin/android_device_xiaomi_equuleus.git 
+device/xiaomi/${{ env.DEVICE }}
 
-    - name: Clone Kernel Source
+    - name: Clone Kernel
       run: |
         cd orangefox
-        git clone https://github.com/LineageOS/android_kernel_xiaomi_sdm845.git kernel/xiaomi/sdm845
-
-    - name: Clone Vendor (如果需要)
-      run: |
-        cd orangefox
-        # 可能需要厂商闭源库，从 LineageOS 获取
-        git clone https://gitlab.com/OrangeFox/vendor_xiaomi_equuleus.git vendor/xiaomi/${{ env.DEVICE }} || echo "Vendor not found, using common sdm845"
+        git clone 
+https://github.com/LineageOS/android_kernel_xiaomi_sdm845.git 
+kernel/xiaomi/sdm845
 
     - name: Setup Environment
       run: |
         cd orangefox
         source build/envsetup.sh
+        # OrangeFox 使用 twrp 前缀
         lunch twrp_${{ env.DEVICE }}-eng
+
+    - name: Apply OrangeFox Patches
+      run: |
+        cd orangefox
+        # 应用 OrangeFox 特定的补丁
+        if [ -d bootable/recovery/patches ]; 
+then
+          bash 
+bootable/recovery/patches/apply.sh
+        fi
 
     - name: Build Recovery
       run: |
         cd orangefox
-        mka recoveryimage -j$(nproc)
+        mka recoveryimage -j$(nproc) 2>&1 | tee 
+build.log
 
-    - name: Prepare Output
+    - name: Find and Upload Build
       run: |
-        cd orangefox/out/target/product/${{ env.DEVICE }}
-        # 重命名输出文件
-        if [ -f recovery.img ]; then
-          mv recovery.img OrangeFox-${{ env.DEVICE }}.img
-        elif [ -f *.zip ]; then
-          mv *.zip OrangeFox-${{ env.DEVICE }}.zip
+        cd orangefox
+        # 查找生成的镜像文件
+        find . -name "*.img" -o -name "*.zip" | 
+grep -E "(recovery|OrangeFox)"
+        
+        # 常见的输出路径
+        if [ -f out/target/product/${{ 
+env.DEVICE }}/recovery.img ]; then
+          cp out/target/product/${{ env.DEVICE 
+}}/recovery.img OrangeFox-${{ env.DEVICE }}.img
+        elif [ -f out/target/product/${{ 
+env.DEVICE }}/OrangeFox*.zip ]; then
+          cp out/target/product/${{ env.DEVICE 
+}}/OrangeFox*.zip .
         fi
 
     - name: Upload Artifact
       uses: actions/upload-artifact@v4
       with:
-        name: OrangeFox-${{ env.DEVICE }}
-        path: orangefox/out/target/product/${{ env.DEVICE }}/OrangeFox-${{ env.DEVICE }}.*
+        name: OrangeFox-${{ env.DEVICE }}-build
+        path: orangefox/OrangeFox-${{ env.DEVICE 
+}}.*
+        if-no-files-found: warn
+
+    - name: Upload Build Log
+      if: always()
+      uses: actions/upload-artifact@v4
+      with:
+        name: build-log
+        path: orangefox/build.log
 
