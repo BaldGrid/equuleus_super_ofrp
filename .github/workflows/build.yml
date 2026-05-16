@@ -1,4 +1,4 @@
-name: equuleus new ofrp
+name: Build OrangeFox for Xiaomi 8 Equuleus
 
 on:
   push:
@@ -21,7 +21,7 @@ jobs:
     - name: Install Dependencies
       run: |
         sudo apt update
-        sudo apt install -y git-core build-essential bc openjdk-${{ env.JDK_VERSION }} unzip curl python3 wget repo
+        sudo apt install -y git build-essential bc openjdk-11-jdk unzip curl python3 wget repo
 
     - name: Clone OrangeFox Source
       run: |
@@ -47,3 +47,4 @@ jobs:
       with:
         name: OrangeFox-${{ env.DEVICE }}-recovery.img
         path: orangefox/out/target/product/${{ env.DEVICE }}/recovery.img
+
