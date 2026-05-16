@@ -1,4 +1,4 @@
-name: equuleus super ofrp
+name: equuleus new ofrp
 
 on:
   push:
@@ -43,7 +43,7 @@ jobs:
         mka recoveryimage -j$(nproc)
 
     - name: Upload Recovery Image
-      uses: actions/upload-artifact@v3
+      uses: actions/upload-artifact@v4
       with:
         name: OrangeFox-${{ env.DEVICE }}-recovery.img
         path: orangefox/out/target/product/${{ env.DEVICE }}/recovery.img
